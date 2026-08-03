@@ -37,7 +37,7 @@ export class VoteRound {
   @Prop({ type: [VoteSchema], default: [] })
   votes: Vote[];
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   revealedAt: Date | null;
 
   @Prop({ type: RoundStatsSchema, default: null })
