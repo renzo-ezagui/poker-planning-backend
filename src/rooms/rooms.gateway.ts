@@ -2,9 +2,11 @@ import {
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
+  OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { InjectModel } from '@nestjs/mongoose';
+import { JwtService } from '@nestjs/jwt';
 import { Model } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import { v4 as uuid } from 'uuid';
@@ -16,14 +18,35 @@ import { sanitizeText } from '../common/sanitize';
 @WebSocketGateway({
   cors: { origin: process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173', credentials: true },
 })
-export class RoomsGateway implements OnGatewayDisconnect {
+export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
   constructor(
     @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
     @InjectModel(Participant.name) private participantModel: Model<ParticipantDocument>,
     @InjectModel(VoteRound.name) private voteRoundModel: Model<VoteRoundDocument>,
+    private jwtService: JwtService,
   ) {}
+
+  handleConnection(client: Socket) {
+    const cookieHeader = client.handshake.headers.cookie;
+    if (!cookieHeader) return;
+
+    const token = cookieHeader
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('admin_jwt='))
+      ?.slice('admin_jwt='.length);
+    if (!token) return;
+
+    try {
+      const payload = this.jwtService.verify(token, { secret: process.env.JWT_SECRET });
+      (client.data as any).adminId = payload.sub;
+    } catch {
+      // invalid/expired token — leave adminId unset, admin actions will be
+      // rejected by assertRoomAdmin same as an unauthenticated connection
+    }
+  }
 
   @SubscribeMessage('join')
   async handleJoin(
