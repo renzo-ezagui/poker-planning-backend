@@ -13,9 +13,12 @@ function cookieExtractor(req: RequestWithCookies): string | null {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET environment variable is required');
+    }
     super({
       jwtFromRequest: cookieExtractor,
-      secretOrKey: process.env.JWT_SECRET ?? '',
+      secretOrKey: process.env.JWT_SECRET,
     });
   }
 

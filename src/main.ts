@@ -4,6 +4,9 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
   app.use(cookieParser());
