@@ -13,9 +13,14 @@ const VoteSchema = SchemaFactory.createForClass(Vote);
 
 @Schema()
 class RoundStats {
-  @Prop() avg: number;
-  @Prop() median: number;
-  @Prop() variance: number;
+  @Prop({ type: Number })
+  avg: number;
+
+  @Prop({ type: Number })
+  median: number;
+
+  @Prop({ type: Number })
+  variance: number;
 }
 const RoundStatsSchema = SchemaFactory.createForClass(RoundStats);
 
