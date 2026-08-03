@@ -5,6 +5,7 @@ import { Participant, ParticipantSchema } from './schemas/participant.schema';
 import { VoteRound, VoteRoundSchema } from './schemas/vote-round.schema';
 import { RoomsService } from './rooms.service';
 import { RoomsController } from './rooms.controller';
+import { RoomsGateway } from './rooms.gateway';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { RoomsController } from './rooms.controller';
       { name: VoteRound.name, schema: VoteRoundSchema },
     ]),
   ],
-  providers: [RoomsService],
+  providers: [RoomsService, RoomsGateway],
   controllers: [RoomsController],
   exports: [RoomsService],
 })
