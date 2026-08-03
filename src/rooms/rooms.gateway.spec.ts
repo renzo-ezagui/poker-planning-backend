@@ -101,3 +101,68 @@ describe('RoomsGateway.handleJoin', () => {
     expect(emittedPayload.participantId).not.toBe('p1');
   });
 });
+
+describe('RoomsGateway.handleVoteCast', () => {
+  let gateway: RoomsGateway;
+  const participantModel = { findById: jest.fn() };
+  const voteRoundModel = { findOne: jest.fn() };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RoomsGateway,
+        { provide: getModelToken(Room.name), useValue: {} },
+        { provide: getModelToken(Participant.name), useValue: participantModel },
+        { provide: getModelToken(VoteRound.name), useValue: voteRoundModel },
+      ],
+    }).compile();
+    gateway = moduleRef.get(RoomsGateway);
+    gateway.server = { to: jest.fn(() => ({ emit: jest.fn() })) } as any;
+  });
+
+  it('rejects a vote from a spectator', async () => {
+    participantModel.findById.mockResolvedValue({ _id: 'p1', isSpectator: true });
+    const client = { id: 's1', emit: jest.fn() };
+
+    await gateway.handleVoteCast(client as any, {
+      participantId: 'p1',
+      roomCode: 'ABCD1234',
+      value: '5',
+    });
+
+    expect(client.emit).toHaveBeenCalledWith('error', expect.objectContaining({
+      message: expect.stringContaining('spectator'),
+    }));
+  });
+});
+
+describe('RoomsGateway admin-only events', () => {
+  let gateway: RoomsGateway;
+  const roomModel = { findOne: jest.fn() };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RoomsGateway,
+        { provide: getModelToken(Room.name), useValue: roomModel },
+        { provide: getModelToken(Participant.name), useValue: {} },
+        { provide: getModelToken(VoteRound.name), useValue: {} },
+      ],
+    }).compile();
+    gateway = moduleRef.get(RoomsGateway);
+    gateway.server = { to: jest.fn(() => ({ emit: jest.fn() })) } as any;
+  });
+
+  it('rejects round:start from a socket whose adminId does not own the room', async () => {
+    roomModel.findOne.mockResolvedValue({ _id: 'room1', adminId: 'realAdmin', code: 'ABCD1234' });
+    const client = { id: 's1', emit: jest.fn(), data: { adminId: 'imposter' } };
+
+    await gateway.handleRoundStart(client as any, { roomCode: 'ABCD1234', topic: 'Story 1' });
+
+    expect(client.emit).toHaveBeenCalledWith('error', expect.objectContaining({
+      message: expect.stringContaining('not authorized'),
+    }));
+  });
+});

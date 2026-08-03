@@ -79,4 +79,59 @@ export class RoomsGateway implements OnGatewayDisconnect {
       { connected: false, socketId: null },
     );
   }
+
+  private async assertRoomAdmin(client: Socket, roomCode: string) {
+    const room = await this.roomModel.findOne({ code: roomCode });
+    if (!room || (client as any).data?.adminId !== room.adminId?.toString()) {
+      client.emit('error', { message: 'not authorized for this room' });
+      return null;
+    }
+    return room;
+  }
+
+  @SubscribeMessage('vote:cast')
+  async handleVoteCast(
+    client: Socket,
+    payload: { participantId: string; roomCode: string; value: string },
+  ) {
+    const participant = await this.participantModel.findById(payload.participantId);
+    if (!participant || participant.isSpectator) {
+      client.emit('error', { message: 'spectators cannot vote' });
+      return;
+    }
+    this.server.to(payload.roomCode).emit('participant:voted', {
+      participantId: payload.participantId,
+    });
+    // actual value stored server-side only, not broadcast until reveal
+    (client.data as any).pendingVote = payload.value;
+  }
+
+  @SubscribeMessage('round:start')
+  async handleRoundStart(client: Socket, payload: { roomCode: string; topic: string }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    const safeTopic = sanitizeText(payload.topic, 280);
+    room.currentTopic = safeTopic;
+    room.revealState = 'hidden';
+    await (room as any).save?.();
+    this.server.to(payload.roomCode).emit('round:start', { topic: safeTopic });
+  }
+
+  @SubscribeMessage('round:reveal')
+  async handleRoundReveal(client: Socket, payload: { roomCode: string }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    room.revealState = 'revealed';
+    await (room as any).save?.();
+    this.server.to(payload.roomCode).emit('round:reveal', {});
+  }
+
+  @SubscribeMessage('round:revote')
+  async handleRoundRevote(client: Socket, payload: { roomCode: string }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    room.revealState = 'hidden';
+    await (room as any).save?.();
+    this.server.to(payload.roomCode).emit('round:revote', {});
+  }
 }
