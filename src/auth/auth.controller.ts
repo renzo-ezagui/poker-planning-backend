@@ -7,11 +7,17 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { IsString, IsNotEmpty } from 'class-validator';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
 
 class LoginDto {
+  @IsString()
+  @IsNotEmpty()
   username: string;
+
+  @IsString()
+  @IsNotEmpty()
   password: string;
 }
 
