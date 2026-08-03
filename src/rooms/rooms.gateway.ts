@@ -99,6 +99,17 @@ export class RoomsGateway implements OnGatewayDisconnect {
       client.emit('error', { message: 'spectators cannot vote' });
       return;
     }
+    // the participantId in the payload is client-supplied — prove this
+    // socket actually owns that participant before accepting the vote
+    if (participant.socketId !== client.id) {
+      client.emit('error', { message: 'not authorized to cast this vote' });
+      return;
+    }
+    const room = await this.roomModel.findOne({ code: payload.roomCode });
+    if (!room || participant.roomId?.toString() !== room._id?.toString()) {
+      client.emit('error', { message: 'not authorized to cast this vote' });
+      return;
+    }
     this.server.to(payload.roomCode).emit('participant:voted', {
       participantId: payload.participantId,
     });

@@ -135,6 +135,28 @@ describe('RoomsGateway.handleVoteCast', () => {
       message: expect.stringContaining('spectator'),
     }));
   });
+
+  it('rejects a vote whose participantId belongs to a different socket', async () => {
+    // fabricated/borrowed participantId: participant exists, is a voter,
+    // but its socketId (set on join/reconnect) is NOT this calling socket
+    participantModel.findById.mockResolvedValue({
+      _id: 'p1',
+      isSpectator: false,
+      socketId: 'someone-elses-socket',
+      roomId: 'room1',
+    });
+    const client = { id: 's1', emit: jest.fn() };
+
+    await gateway.handleVoteCast(client as any, {
+      participantId: 'p1',
+      roomCode: 'ABCD1234',
+      value: '5',
+    });
+
+    expect(client.emit).toHaveBeenCalledWith('error', expect.objectContaining({
+      message: expect.stringContaining('not authorized'),
+    }));
+  });
 });
 
 describe('RoomsGateway admin-only events', () => {
