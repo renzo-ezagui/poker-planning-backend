@@ -352,4 +352,118 @@ describe('RoomsGateway vote persistence', () => {
 
     expect(save).toHaveBeenCalled();
   });
+
+  it('updates an existing vote entry in place instead of pushing a duplicate', async () => {
+    participantModel.findById.mockResolvedValue({
+      _id: 'p1',
+      isSpectator: false,
+      socketId: 's1',
+      roomId: { toString: () => 'room1' },
+    });
+    roomModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'room1' },
+      deckType: 'fibonacci',
+    });
+    const save = jest.fn();
+    const votes = [{ participantId: { toString: () => 'p1' }, value: '3' }];
+    voteRoundModel.findOne.mockReturnValue({
+      sort: jest.fn().mockResolvedValue({ votes, revealedAt: null, save }),
+    });
+    const client = { id: 's1', emit: jest.fn() };
+
+    await gateway.handleVoteCast(client as any, {
+      participantId: 'p1',
+      roomCode: 'ABCD1234',
+      value: '8',
+    });
+
+    expect(votes).toHaveLength(1);
+    expect(votes[0].value).toBe('8');
+    expect(save).toHaveBeenCalled();
+  });
+
+  it('computes stats when all votes in the round are numeric', async () => {
+    roomModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'room1' },
+      adminId: 'admin1',
+      code: 'ABCD1234',
+    });
+    const save = jest.fn();
+    voteRoundModel.findOne.mockReturnValue({
+      sort: jest.fn().mockResolvedValue({
+        votes: [
+          { participantId: { toString: () => 'p1' }, value: '3' },
+          { participantId: { toString: () => 'p2' }, value: '5' },
+        ],
+        save,
+      }),
+    });
+    const emit = jest.fn();
+    gateway.server = {
+      to: jest.fn(() => ({ emit })),
+      in: jest.fn(() => ({ fetchSockets: jest.fn().mockResolvedValue([]) })),
+    } as any;
+    const client = { id: 's1', emit: jest.fn(), data: { adminId: 'admin1' } };
+
+    await gateway.handleRoundReveal(client as any, { roomCode: 'ABCD1234' });
+
+    expect(save).toHaveBeenCalled();
+    const payload = emit.mock.calls.find((c) => c[0] === 'round:reveal')[1];
+    expect(payload.stats).not.toBeNull();
+    expect(payload.stats).toEqual(expect.objectContaining({ avg: 4 }));
+  });
+
+  it('returns null stats when a non-numeric vote is present', async () => {
+    roomModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'room1' },
+      adminId: 'admin1',
+      code: 'ABCD1234',
+    });
+    const save = jest.fn();
+    voteRoundModel.findOne.mockReturnValue({
+      sort: jest.fn().mockResolvedValue({
+        votes: [
+          { participantId: { toString: () => 'p1' }, value: '3' },
+          { participantId: { toString: () => 'p2' }, value: '?' },
+        ],
+        save,
+      }),
+    });
+    const emit = jest.fn();
+    gateway.server = {
+      to: jest.fn(() => ({ emit })),
+      in: jest.fn(() => ({ fetchSockets: jest.fn().mockResolvedValue([]) })),
+    } as any;
+    const client = { id: 's1', emit: jest.fn(), data: { adminId: 'admin1' } };
+
+    await gateway.handleRoundReveal(client as any, { roomCode: 'ABCD1234' });
+
+    const payload = emit.mock.calls.find((c) => c[0] === 'round:reveal')[1];
+    expect(payload.stats).toBeNull();
+  });
+
+  it('clears votes on the existing VoteRound on revote instead of creating a new one', async () => {
+    roomModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'room1' },
+      adminId: 'admin1',
+      code: 'ABCD1234',
+    });
+    const save = jest.fn();
+    const existingRound = {
+      votes: [{ participantId: { toString: () => 'p1' }, value: '3' }],
+      revealedAt: new Date(),
+      save,
+    };
+    voteRoundModel.findOne.mockReturnValue({
+      sort: jest.fn().mockResolvedValue(existingRound),
+    });
+    const client = { id: 's1', emit: jest.fn(), data: { adminId: 'admin1' } };
+
+    await gateway.handleRoundRevote(client as any, { roomCode: 'ABCD1234' });
+
+    expect(voteRoundModel.create).not.toHaveBeenCalled();
+    expect(existingRound.votes).toEqual([]);
+    expect(existingRound.revealedAt).toBeNull();
+    expect(save).toHaveBeenCalled();
+  });
 });
