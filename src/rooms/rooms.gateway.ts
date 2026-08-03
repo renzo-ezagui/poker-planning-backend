@@ -108,6 +108,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       { socketId: client.id },
       { connected: false, socketId: null },
     );
+    this.chatTimestamps.delete(client.id);
   }
 
   private async assertRoomAdmin(client: Socket, roomCode: string) {
