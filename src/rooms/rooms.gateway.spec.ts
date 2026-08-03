@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
+import { JwtService } from '@nestjs/jwt';
 import { RoomsGateway } from './rooms.gateway';
 import { Room } from './schemas/room.schema';
 import { Participant } from './schemas/participant.schema';
@@ -29,6 +30,7 @@ describe('RoomsGateway.handleJoin', () => {
         { provide: getModelToken(Room.name), useValue: roomModel },
         { provide: getModelToken(Participant.name), useValue: participantModel },
         { provide: getModelToken(VoteRound.name), useValue: {} },
+        { provide: JwtService, useValue: { verify: jest.fn() } },
       ],
     }).compile();
     gateway = moduleRef.get(RoomsGateway);
@@ -115,6 +117,7 @@ describe('RoomsGateway.handleVoteCast', () => {
         { provide: getModelToken(Room.name), useValue: {} },
         { provide: getModelToken(Participant.name), useValue: participantModel },
         { provide: getModelToken(VoteRound.name), useValue: voteRoundModel },
+        { provide: JwtService, useValue: { verify: jest.fn() } },
       ],
     }).compile();
     gateway = moduleRef.get(RoomsGateway);
@@ -171,6 +174,7 @@ describe('RoomsGateway admin-only events', () => {
         { provide: getModelToken(Room.name), useValue: roomModel },
         { provide: getModelToken(Participant.name), useValue: {} },
         { provide: getModelToken(VoteRound.name), useValue: {} },
+        { provide: JwtService, useValue: { verify: jest.fn() } },
       ],
     }).compile();
     gateway = moduleRef.get(RoomsGateway);
@@ -186,5 +190,62 @@ describe('RoomsGateway admin-only events', () => {
     expect(client.emit).toHaveBeenCalledWith('error', expect.objectContaining({
       message: expect.stringContaining('not authorized'),
     }));
+  });
+});
+
+describe('RoomsGateway handshake auth', () => {
+  let gateway: RoomsGateway;
+  let jwtService: { verify: jest.Mock };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    jwtService = { verify: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RoomsGateway,
+        { provide: getModelToken(Room.name), useValue: {} },
+        { provide: getModelToken(Participant.name), useValue: {} },
+        { provide: getModelToken(VoteRound.name), useValue: {} },
+        { provide: JwtService, useValue: jwtService },
+      ],
+    }).compile();
+    gateway = moduleRef.get(RoomsGateway);
+  });
+
+  it('sets client.data.adminId from a valid admin_jwt cookie', () => {
+    jwtService.verify.mockReturnValue({ sub: 'admin1' });
+    const client = {
+      id: 's1',
+      data: {},
+      handshake: { headers: { cookie: 'admin_jwt=valid.token.here; other=x' } },
+    };
+
+    gateway.handleConnection(client as any);
+
+    expect(client.data).toEqual(expect.objectContaining({ adminId: 'admin1' }));
+  });
+
+  it('leaves client.data.adminId unset when no admin_jwt cookie is present', () => {
+    const client = { id: 's2', data: {}, handshake: { headers: {} } };
+
+    gateway.handleConnection(client as any);
+
+    expect((client.data as any).adminId).toBeUndefined();
+    expect(jwtService.verify).not.toHaveBeenCalled();
+  });
+
+  it('leaves client.data.adminId unset when the cookie is present but invalid', () => {
+    jwtService.verify.mockImplementation(() => {
+      throw new Error('invalid signature');
+    });
+    const client = {
+      id: 's3',
+      data: {},
+      handshake: { headers: { cookie: 'admin_jwt=garbage' } },
+    };
+
+    gateway.handleConnection(client as any);
+
+    expect((client.data as any).adminId).toBeUndefined();
   });
 });
