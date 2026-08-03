@@ -14,7 +14,7 @@ export class Participant {
   @Prop({ required: true, unique: true })
   token: string;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   socketId: string | null;
 
   @Prop({ default: false })
