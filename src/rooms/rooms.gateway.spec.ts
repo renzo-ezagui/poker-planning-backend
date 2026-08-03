@@ -280,3 +280,76 @@ describe('RoomsGateway.handleRoomClose authz', () => {
     }));
   });
 });
+
+describe('RoomsGateway vote persistence', () => {
+  let gateway: RoomsGateway;
+  const roomModel = { findOne: jest.fn() };
+  const participantModel = { findById: jest.fn(), findOne: jest.fn() };
+  const voteRoundModel = { create: jest.fn(), findOne: jest.fn() };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RoomsGateway,
+        { provide: getModelToken(Room.name), useValue: roomModel },
+        { provide: getModelToken(Participant.name), useValue: participantModel },
+        { provide: getModelToken(VoteRound.name), useValue: voteRoundModel },
+        { provide: JwtService, useValue: { verify: jest.fn() } },
+      ],
+    }).compile();
+    gateway = moduleRef.get(RoomsGateway);
+    gateway.server = {
+      to: jest.fn(() => ({ emit: jest.fn() })),
+      in: jest.fn(() => ({ fetchSockets: jest.fn().mockResolvedValue([]) })),
+    } as any;
+  });
+
+  it('rejects a vote value not in the room deck', async () => {
+    participantModel.findById.mockResolvedValue({
+      _id: 'p1',
+      isSpectator: false,
+      socketId: 's1',
+      roomId: 'room1',
+    });
+    roomModel.findOne.mockResolvedValue({ _id: 'room1', deckType: 'fibonacci' });
+    const client = { id: 's1', emit: jest.fn() };
+
+    await gateway.handleVoteCast(client as any, {
+      participantId: 'p1',
+      roomCode: 'ABCD1234',
+      value: 'not-a-real-card',
+    });
+
+    expect(client.emit).toHaveBeenCalledWith(
+      'error',
+      expect.objectContaining({ message: expect.stringContaining('deck') }),
+    );
+  });
+
+  it('persists a valid vote onto the current VoteRound', async () => {
+    participantModel.findById.mockResolvedValue({
+      _id: 'p1',
+      isSpectator: false,
+      socketId: 's1',
+      roomId: { toString: () => 'room1' },
+    });
+    roomModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'room1' },
+      deckType: 'fibonacci',
+    });
+    const save = jest.fn();
+    voteRoundModel.findOne.mockReturnValue({
+      sort: jest.fn().mockResolvedValue({ votes: [], revealedAt: null, save }),
+    });
+    const client = { id: 's1', emit: jest.fn() };
+
+    await gateway.handleVoteCast(client as any, {
+      participantId: 'p1',
+      roomCode: 'ABCD1234',
+      value: '5',
+    });
+
+    expect(save).toHaveBeenCalled();
+  });
+});

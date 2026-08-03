@@ -21,4 +21,12 @@ export class RoomsController {
     if (!room) throw new NotFoundException('room not found');
     return room;
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':code/is-admin')
+  async isAdmin(@Param('code') code: string, @Req() req: any) {
+    const room = await this.roomsService.getByCode(code);
+    if (!room) throw new NotFoundException('room not found');
+    return { isAdmin: room.adminId?.toString() === req.user.adminId };
+  }
 }

@@ -15,6 +15,8 @@ import { Participant, ParticipantDocument } from './schemas/participant.schema';
 import { VoteRound, VoteRoundDocument } from './schemas/vote-round.schema';
 import { sanitizeText } from '../common/sanitize';
 import { exportRoomHistory } from './rooms.export';
+import { computeStats } from '../common/stats';
+import { isValidVoteValue } from '../common/deck-values';
 
 const CHAT_RATE_LIMIT_MAX = 5;
 const CHAT_RATE_LIMIT_WINDOW_MS = 3000;
@@ -58,7 +60,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('join')
   async handleJoin(
     client: Socket,
-    payload: { roomCode: string; name: string; token?: string },
+    payload: { roomCode: string; name: string; token?: string; isSpectator?: boolean },
   ) {
     const room = await this.roomModel.findOne({ code: payload.roomCode, status: 'open' });
     if (!room) {
@@ -84,7 +86,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         token: uuid(),
         socketId: client.id,
         connected: true,
-        isSpectator: false,
+        isSpectator: Boolean(payload.isSpectator),
       });
     } else {
       participant.socketId = client.id;
@@ -133,19 +135,37 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // the participantId in the payload is client-supplied — prove this
     // socket actually owns that participant before accepting the vote
     if (participant.socketId !== client.id) {
-      client.emit('error', { message: 'not authorized to cast this vote' });
+      client.emit('error', { message: 'not authorized for this participant' });
       return;
     }
     const room = await this.roomModel.findOne({ code: payload.roomCode });
     if (!room || participant.roomId?.toString() !== room._id?.toString()) {
-      client.emit('error', { message: 'not authorized to cast this vote' });
+      client.emit('error', { message: 'participant does not belong to this room' });
       return;
     }
+    if (!isValidVoteValue((room as any).deckType, payload.value)) {
+      client.emit('error', { message: "invalid vote value for this room's deck" });
+      return;
+    }
+    const voteRound = await this.voteRoundModel
+      .findOne({ roomId: room._id })
+      .sort({ createdAt: -1 });
+    if (!voteRound || (voteRound as any).revealedAt) {
+      client.emit('error', { message: 'no active round to vote on' });
+      return;
+    }
+    const existing = voteRound.votes.find(
+      (v: any) => v.participantId.toString() === payload.participantId,
+    );
+    if (existing) {
+      existing.value = payload.value;
+    } else {
+      voteRound.votes.push({ participantId: participant._id, value: payload.value } as any);
+    }
+    await (voteRound as any).save?.();
     this.server.to(payload.roomCode).emit('participant:voted', {
       participantId: payload.participantId,
     });
-    // actual value stored server-side only, not broadcast until reveal
-    (client.data as any).pendingVote = payload.value;
   }
 
   @SubscribeMessage('round:start')
@@ -156,6 +176,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.currentTopic = safeTopic;
     room.revealState = 'hidden';
     await (room as any).save?.();
+    await this.voteRoundModel.create({ roomId: room._id, topic: safeTopic, votes: [] });
     this.server.to(payload.roomCode).emit('round:start', { topic: safeTopic });
   }
 
@@ -165,7 +186,30 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!room) return;
     room.revealState = 'revealed';
     await (room as any).save?.();
-    this.server.to(payload.roomCode).emit('round:reveal', {});
+    const voteRound = await this.voteRoundModel
+      .findOne({ roomId: room._id })
+      .sort({ createdAt: -1 });
+    if (!voteRound) {
+      this.server.to(payload.roomCode).emit('round:reveal', { votes: [], stats: null });
+      return;
+    }
+    const numericValues = voteRound.votes
+      .map((v: any) => Number(v.value))
+      .filter((n: number) => !Number.isNaN(n));
+    const stats =
+      numericValues.length === voteRound.votes.length && numericValues.length > 0
+        ? computeStats(numericValues)
+        : null;
+    voteRound.revealedAt = new Date();
+    voteRound.stats = stats as any;
+    await (voteRound as any).save?.();
+    this.server.to(payload.roomCode).emit('round:reveal', {
+      votes: voteRound.votes.map((v: any) => ({
+        participantId: v.participantId.toString(),
+        value: v.value,
+      })),
+      stats,
+    });
   }
 
   @SubscribeMessage('round:revote')
@@ -174,11 +218,28 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!room) return;
     room.revealState = 'hidden';
     await (room as any).save?.();
+    const voteRound = await this.voteRoundModel
+      .findOne({ roomId: room._id })
+      .sort({ createdAt: -1 });
+    if (voteRound) {
+      voteRound.votes = [];
+      (voteRound as any).revealedAt = null;
+      await (voteRound as any).save?.();
+    }
     this.server.to(payload.roomCode).emit('round:revote', {});
   }
 
+  @SubscribeMessage('timer:start')
+  async handleTimerStart(client: Socket, payload: { roomCode: string; endsAt: number }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    room.timerEndsAt = new Date(payload.endsAt);
+    await (room as any).save?.();
+    this.server.to(payload.roomCode).emit('timer:start', { endsAt: payload.endsAt });
+  }
+
   @SubscribeMessage('chat:message')
-  handleChatMessage(client: Socket, payload: { roomCode: string; name: string; text: string }) {
+  async handleChatMessage(client: Socket, payload: { roomCode: string; text: string }) {
     const now = Date.now();
     const recent = (this.chatTimestamps.get(client.id) ?? []).filter(
       (ts) => now - ts < CHAT_RATE_LIMIT_WINDOW_MS,
@@ -190,10 +251,15 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     recent.push(now);
     this.chatTimestamps.set(client.id, recent);
 
+    const participant = await this.participantModel.findOne({ socketId: client.id });
+    const room = await this.roomModel.findOne({ code: payload.roomCode });
+    if (!participant || !room || participant.roomId?.toString() !== room._id?.toString()) {
+      client.emit('error', { message: 'not a member of this room' });
+      return;
+    }
     const safeText = sanitizeText(payload.text, 500);
-    const safeName = sanitizeText(payload.name, 40);
     this.server.to(payload.roomCode).emit('chat:message', {
-      name: safeName,
+      name: participant.name,
       text: safeText,
       ts: now,
     });
@@ -223,5 +289,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const rounds = await this.voteRoundModel.find({ roomId: room._id });
     const csv = exportRoomHistory(rounds as any);
     this.server.to(payload.roomCode).emit('room:close', { exportCsv: csv });
+    const roomSockets = await this.server.in(payload.roomCode).fetchSockets();
+    for (const s of roomSockets) {
+      s.disconnect(true);
+    }
   }
 }
