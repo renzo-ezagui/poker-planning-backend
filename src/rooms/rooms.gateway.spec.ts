@@ -249,3 +249,34 @@ describe('RoomsGateway handshake auth', () => {
     expect((client.data as any).adminId).toBeUndefined();
   });
 });
+
+describe('RoomsGateway.handleRoomClose authz', () => {
+  let gateway: RoomsGateway;
+  const roomModel = { findOne: jest.fn() };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RoomsGateway,
+        { provide: getModelToken(Room.name), useValue: roomModel },
+        { provide: getModelToken(Participant.name), useValue: {} },
+        { provide: getModelToken(VoteRound.name), useValue: { find: jest.fn().mockResolvedValue([]) } },
+        { provide: JwtService, useValue: { verify: jest.fn() } },
+      ],
+    }).compile();
+    gateway = moduleRef.get(RoomsGateway);
+    gateway.server = { to: jest.fn(() => ({ emit: jest.fn() })), sockets: { sockets: new Map() } } as any;
+  });
+
+  it('rejects room:close from a non-admin socket', async () => {
+    roomModel.findOne.mockResolvedValue({ _id: 'room1', adminId: 'realAdmin', code: 'ABCD1234' });
+    const client = { id: 's1', emit: jest.fn(), data: { adminId: 'imposter' } };
+
+    await gateway.handleRoomClose(client as any, { roomCode: 'ABCD1234' });
+
+    expect(client.emit).toHaveBeenCalledWith('error', expect.objectContaining({
+      message: expect.stringContaining('not authorized'),
+    }));
+  });
+});
