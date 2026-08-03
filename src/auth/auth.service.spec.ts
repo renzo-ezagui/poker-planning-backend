@@ -28,7 +28,11 @@ describe('AuthService', () => {
 
   it('registers a new admin with a bcrypt hash, never the raw password', async () => {
     adminModel.findOne.mockResolvedValue(null);
-    adminModel.create.mockResolvedValue({ _id: 'abc123', username: 'renzo' });
+    adminModel.create.mockResolvedValue({
+      _id: 'abc123',
+      username: 'renzo',
+      passwordHash: 'hashed-value',
+    });
 
     await service.register('renzo', 'correct-horse-battery');
 
@@ -37,6 +41,20 @@ describe('AuthService', () => {
     );
     const createdArg = adminModel.create.mock.calls[0][0];
     expect(createdArg.passwordHash).not.toBe('correct-horse-battery');
+  });
+
+  it('register() never returns the passwordHash to the caller', async () => {
+    adminModel.findOne.mockResolvedValue(null);
+    adminModel.create.mockResolvedValue({
+      _id: 'abc123',
+      username: 'renzo',
+      passwordHash: 'hashed-value',
+    });
+
+    const result = await service.register('renzo', 'correct-horse-battery');
+
+    expect(result).toEqual({ id: 'abc123', username: 'renzo' });
+    expect(result).not.toHaveProperty('passwordHash');
   });
 
   it('rejects login with a wrong password', async () => {

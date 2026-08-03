@@ -12,11 +12,15 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async register(username: string, password: string) {
+  async register(
+    username: string,
+    password: string,
+  ): Promise<{ id: string; username: string }> {
     const existing = await this.adminModel.findOne({ username });
     if (existing) throw new ConflictException('username taken');
     const passwordHash = await bcrypt.hash(password, 12);
-    return this.adminModel.create({ username, passwordHash });
+    const created = await this.adminModel.create({ username, passwordHash });
+    return { id: created._id.toString(), username: created.username };
   }
 
   async validateLogin(
