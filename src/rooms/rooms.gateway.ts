@@ -14,12 +14,19 @@ import { Room, RoomDocument } from './schemas/room.schema';
 import { Participant, ParticipantDocument } from './schemas/participant.schema';
 import { VoteRound, VoteRoundDocument } from './schemas/vote-round.schema';
 import { sanitizeText } from '../common/sanitize';
+import { exportRoomHistory } from './rooms.export';
+
+const CHAT_RATE_LIMIT_MAX = 5;
+const CHAT_RATE_LIMIT_WINDOW_MS = 3000;
 
 @WebSocketGateway({
   cors: { origin: process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173', credentials: true },
 })
 export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
+
+  // per-socket chat rate limiting — ephemeral, in-memory, not persisted
+  private chatTimestamps = new Map<string, number[]>();
 
   constructor(
     @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
@@ -167,5 +174,53 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.revealState = 'hidden';
     await (room as any).save?.();
     this.server.to(payload.roomCode).emit('round:revote', {});
+  }
+
+  @SubscribeMessage('chat:message')
+  handleChatMessage(client: Socket, payload: { roomCode: string; name: string; text: string }) {
+    const now = Date.now();
+    const recent = (this.chatTimestamps.get(client.id) ?? []).filter(
+      (ts) => now - ts < CHAT_RATE_LIMIT_WINDOW_MS,
+    );
+    if (recent.length >= CHAT_RATE_LIMIT_MAX) {
+      client.emit('error', { message: 'chat rate limit exceeded, slow down' });
+      return;
+    }
+    recent.push(now);
+    this.chatTimestamps.set(client.id, recent);
+
+    const safeText = sanitizeText(payload.text, 500);
+    const safeName = sanitizeText(payload.name, 40);
+    this.server.to(payload.roomCode).emit('chat:message', {
+      name: safeName,
+      text: safeText,
+      ts: now,
+    });
+  }
+
+  @SubscribeMessage('participant:kick')
+  async handleKick(client: Socket, payload: { roomCode: string; participantId: string }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    await this.participantModel.findByIdAndUpdate(payload.participantId, { connected: false });
+    this.server.to(payload.roomCode).emit('participant:update', { kicked: payload.participantId });
+  }
+
+  @SubscribeMessage('participant:mute')
+  async handleMute(client: Socket, payload: { roomCode: string; participantId: string }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    this.server.to(payload.roomCode).emit('participant:muted', { participantId: payload.participantId });
+  }
+
+  @SubscribeMessage('room:close')
+  async handleRoomClose(client: Socket, payload: { roomCode: string }) {
+    const room = await this.assertRoomAdmin(client, payload.roomCode);
+    if (!room) return;
+    room.status = 'closed';
+    await (room as any).save?.();
+    const rounds = await this.voteRoundModel.find({ roomId: room._id });
+    const csv = exportRoomHistory(rounds as any);
+    this.server.to(payload.roomCode).emit('room:close', { exportCsv: csv });
   }
 }
