@@ -14,6 +14,7 @@ services:
       MONGO_URI: mongodb://mongo:27017/poker-planning
       JWT_SECRET: dev-secret-change-me
       ALLOWED_ORIGIN: http://localhost:5173
+      ALLOW_REGISTRATION: "true"
       PORT: 3000
     depends_on:
       - mongo

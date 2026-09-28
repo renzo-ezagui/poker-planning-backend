@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-@Schema()
+@Schema({ _id: false })
 class Vote {
   @Prop({ type: Types.ObjectId, required: true, ref: 'Participant' })
   participantId: Types.ObjectId;
@@ -11,7 +11,7 @@ class Vote {
 }
 const VoteSchema = SchemaFactory.createForClass(Vote);
 
-@Schema()
+@Schema({ _id: false })
 class RoundStats {
   @Prop({ type: Number })
   avg: number;
