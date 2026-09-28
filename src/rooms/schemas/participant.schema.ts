@@ -22,6 +22,15 @@ export class Participant {
 
   @Prop({ default: false })
   isSpectator: boolean;
+
+  @Prop({ default: false })
+  isHost: boolean;
+
+  @Prop({ default: false })
+  muted: boolean;
+
+  @Prop({ type: String, default: '' })
+  ip: string;
 }
 
 export const ParticipantSchema = SchemaFactory.createForClass(Participant);

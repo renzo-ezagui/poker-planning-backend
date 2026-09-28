@@ -31,6 +31,9 @@ export class Room {
 
   @Prop({ type: Date, default: null })
   timerEndsAt: Date | null;
+
+  @Prop({ type: [String], default: [] })
+  bannedIps: string[];
 }
 
 export const RoomSchema = SchemaFactory.createForClass(Room);

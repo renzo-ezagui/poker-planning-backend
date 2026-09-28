@@ -13,3 +13,9 @@ describe('sanitizeText', () => {
     expect(sanitizeText('  hello  ', 100)).toBe('hello');
   });
 });
+
+describe('sanitizeText entities', () => {
+  it('returns plain characters, not HTML entities', () => {
+    expect(sanitizeText('Cards & payments <b>now</b>', 100)).toBe('Cards & payments now');
+  });
+});

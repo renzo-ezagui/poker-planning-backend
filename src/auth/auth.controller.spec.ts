@@ -14,7 +14,7 @@ describe('AuthController', () => {
     const res = { cookie: jest.fn() } as any;
 
     await expect(
-      controller.login({ username: 'x', password: 'y' }, res),
+      controller.login({ username: 'x', password: 'y' }, {} as any, res),
     ).rejects.toThrow(UnauthorizedException);
     expect(res.cookie).not.toHaveBeenCalled();
   });
