@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Model, Types } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import { v4 as uuid } from 'uuid';
-import { Room, RoomDocument } from './schemas/room.schema';
+import { Room, RoomDocument, THEMES } from './schemas/room.schema';
 import { Participant, ParticipantDocument } from './schemas/participant.schema';
 import { VoteRound, VoteRoundDocument } from './schemas/vote-round.schema';
 import { sanitizeText } from '../common/sanitize';
@@ -378,6 +378,16 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     client.emit('bans:changed', {});
   }
 
+  @SubscribeMessage('room:theme')
+  async handleTheme(client: Socket, payload: { roomCode: string; theme: string }) {
+    const room = await this.assertRoomAdmin(client, payload?.roomCode);
+    if (!room) return;
+    if (!(THEMES as readonly string[]).includes(payload.theme)) return this.fail(client, 'unknown theme');
+    room.theme = payload.theme as (typeof THEMES)[number];
+    await room.save?.();
+    this.server.to(room.code).emit('room:theme', { theme: room.theme });
+  }
+
   @SubscribeMessage('room:close')
   async handleRoomClose(client: Socket, payload: { roomCode: string }) {
     const room = await this.assertRoomAdmin(client, payload?.roomCode);
@@ -499,6 +509,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     return {
       code: room.code,
       deckType: room.deckType,
+      theme: room.theme ?? 'cardroom',
       topic: room.currentTopic ?? '',
       roundActive: Boolean(voteRound),
       revealState: revealed ? 'revealed' : 'hidden',

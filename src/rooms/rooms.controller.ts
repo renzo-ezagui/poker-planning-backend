@@ -12,7 +12,7 @@ export class RoomsController {
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })
   @Post()
   async create(@Body() dto: CreateRoomDto, @Req() req: any) {
-    const room = await this.roomsService.createRoom(req.user.adminId, dto.deckType, dto.expiresInHours);
+    const room = await this.roomsService.createRoom(req.user.adminId, dto.deckType, dto.expiresInHours, dto.theme);
     return publicRoomView(room);
   }
 

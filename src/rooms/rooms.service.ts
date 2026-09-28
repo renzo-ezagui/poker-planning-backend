@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Room, RoomDocument, DECK_TYPES, DeckType } from './schemas/room.schema';
+import { Room, RoomDocument, DECK_TYPES, DeckType, ThemeId } from './schemas/room.schema';
 import { generateRoomCode } from '../common/room-code';
 
 export const ROOM_CODE_PATTERN = /^[A-Z0-9]{8,12}$/;
@@ -21,6 +21,7 @@ export function publicRoomView(room: any) {
   return {
     code: room.code,
     deckType: room.deckType,
+    theme: room.theme ?? 'cardroom',
     status: room.status === 'open' && isRoomExpired(room) ? 'closed' : room.status,
     currentTopic: room.currentTopic ?? '',
     revealState: room.revealState,
@@ -33,7 +34,7 @@ export function publicRoomView(room: any) {
 export class RoomsService {
   constructor(@InjectModel(Room.name) private roomModel: Model<RoomDocument>) {}
 
-  async createRoom(adminId: string, deckType: DeckType, expiresInHours: number) {
+  async createRoom(adminId: string, deckType: DeckType, expiresInHours: number, theme: ThemeId = 'cardroom') {
     if (!DECK_TYPES.includes(deckType)) {
       throw new BadRequestException('invalid deckType');
     }
@@ -42,6 +43,7 @@ export class RoomsService {
       adminId,
       deckType,
       status: 'open',
+      theme,
       expiresAt: new Date(Date.now() + expiresInHours * 3600_000),
     });
   }
