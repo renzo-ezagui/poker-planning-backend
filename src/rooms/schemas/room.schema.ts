@@ -4,7 +4,7 @@ import { Document, Types } from 'mongoose';
 export const DECK_TYPES = ['fibonacci', 'tshirt'] as const;
 export type DeckType = (typeof DECK_TYPES)[number];
 
-export const THEMES = ['cardroom', 'dungeon'] as const;
+export const THEMES = ['cardroom', 'dungeon', 'terminal'] as const;
 export type ThemeId = (typeof THEMES)[number];
 
 export type RoomDocument = Room & Document;
