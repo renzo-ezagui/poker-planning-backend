@@ -3,13 +3,14 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RoomsService, publicRoomView } from './rooms.service';
 import { CreateRoomDto } from './dto/create-room.dto';
+import { throttleLimit } from '../common/throttle';
 
 @Controller('rooms')
 export class RoomsController {
   constructor(private roomsService: RoomsService) {}
 
   @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 10, ttl: 3600_000 } })
+  @Throttle({ default: { limit: throttleLimit('ROOM_CREATE_THROTTLE_LIMIT', 10), ttl: 3600_000 } })
   @Post()
   async create(@Body() dto: CreateRoomDto, @Req() req: any) {
     const room = await this.roomsService.createRoom(req.user.adminId, dto.deckType, dto.expiresInHours, dto.theme);

@@ -15,6 +15,7 @@ import { IsString, IsNotEmpty, Matches, MaxLength, MinLength } from 'class-valid
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { throttleLimit } from '../common/throttle';
 
 class LoginDto {
   @IsString()
@@ -88,7 +89,7 @@ export class AuthController {
     };
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: throttleLimit('REGISTER_THROTTLE_LIMIT', 5), ttl: 60_000 } })
   @Post('register')
   async register(
     @Body() body: RegisterDto,
@@ -117,7 +118,7 @@ export class AuthController {
     return { ok: true };
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: throttleLimit('LOGIN_THROTTLE_LIMIT', 5), ttl: 60_000 } })
   @Post('login')
   @HttpCode(200)
   async login(
