@@ -65,6 +65,17 @@ function cookieSecure(req: Request): boolean {
   return mode !== 'false';
 }
 
+/**
+ * COOKIE_DOMAIN: unset (default) = host-only cookie, sent only to the exact
+ * host that set it. Set to e.g. ".ezagui.dev" to share the cookie across
+ * subdomains of the same site (SameSite=strict already allows same-site
+ * cross-subdomain requests — this is what actually gates sharing a session
+ * between e.g. poker.ezagui.dev and api.poker.ezagui.dev).
+ */
+function cookieDomain(): string | undefined {
+  return process.env.COOKIE_DOMAIN || undefined;
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
@@ -125,6 +136,7 @@ export class AuthController {
       httpOnly: true,
       secure: cookieSecure(req),
       sameSite: 'strict',
+      domain: cookieDomain(),
       maxAge: 2 * 60 * 60 * 1000,
     });
   }
@@ -132,7 +144,12 @@ export class AuthController {
   @Post('logout')
   @HttpCode(200)
   logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    res.clearCookie(COOKIE_NAME, { httpOnly: true, secure: cookieSecure(req), sameSite: 'strict' });
+    res.clearCookie(COOKIE_NAME, {
+      httpOnly: true,
+      secure: cookieSecure(req),
+      sameSite: 'strict',
+      domain: cookieDomain(),
+    });
     return { ok: true };
   }
 
